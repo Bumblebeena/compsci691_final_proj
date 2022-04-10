@@ -1,0 +1,6 @@
+VOCdevkit/
+venv/
+__pycache__/
+cityscapes*
+.DS_Store
+*~
