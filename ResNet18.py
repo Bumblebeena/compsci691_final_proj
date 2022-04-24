@@ -1,9 +1,22 @@
+import os
+os.add_dll_directory(r'C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.6/bin')
+os.add_dll_directory(r'C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.6/extras/CUPTI/lib64')
+os.add_dll_directory(r'C:/Program Files/NVIDIA/CUDNN/v8.3/bin')
+os.add_dll_directory(r'C:/Program Files/zlib/dll_x64')
 import tensorflow as tf
 import tensorflow_datasets as tfds
 from tensorflow.keras import layers
 from tensorflow.keras.backend import constant as k
 import numpy as np
 import cv2
+
+import ctypes
+
+
+
+   
+
+
 
 class ResNetBlock(tf.keras.Model):
     def __init__(self, num_filters, kernel_size=3, padding='same', trainable=False):
@@ -121,7 +134,7 @@ if __name__ == '__main__':
     # print(img_resize.shape())
     # model.predict(k((img_resize)))
     
-    [ds_train, ds_test, ds_val], ds_info = tfds.load('imagenette', split=['train[:75%]', 'train[75%:]', 'validation'], shuffle_files=False, as_supervised=True, with_info=True)
+    [ds_train, ds_test, ds_val], ds_info = tfds.load('imagenette', split=['train[:5%]', 'train[5%:7%]', 'validation[:5%]'], shuffle_files=False, as_supervised=True, with_info=True)
     #print(ds_train)
     ds_train = ds_train.map(normalize_and_resize_img, num_parallel_calls=tf.data.AUTOTUNE)
 
@@ -190,9 +203,9 @@ if __name__ == '__main__':
         train_loss.append(epoch_loss)
         train_acc.append(epoch_correct/num_train)
 
-        epoch_val_loss, epoch_val_correct = test_step(x_valid, y_valid)
-        val_loss.append(epoch_val_loss)
-        val_acc.append(epoch_val_correct/num_valid)
+        # epoch_val_loss, epoch_val_correct = test_step(x_valid, y_valid)
+        # val_loss.append(epoch_val_loss)
+        # val_acc.append(epoch_val_correct/num_valid)
         print("Completed epoch {} of {}".format(epoch+1, num_epochs))
 
 
