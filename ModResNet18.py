@@ -120,22 +120,22 @@ class ConvSpread(tf.keras.Model):
     def __init__(self, num_filters, kernel_size=3, padding='same', dropout=0.2, trainable=False):
         super().__init__()
         num_filters /= 4
-        self.conv_1_1 = layers.Conv2D(num_filters, kernel_size, padding=padding, dilation_rate=(2,2), trainable=trainable)
+        self.conv_1_1 = layers.Conv2D(num_filters, kernel_size, padding=padding, dilation_rate=(1,1), trainable=trainable)
         self.relu_1_1 = layers.ReLU()
         self.bn_1_1 = layers.BatchNormalization()
         self.drop_1_1 = layers.Dropout(dropout)
 
-        self.conv_1_2 = layers.Conv2D(num_filters, kernel_size, padding=padding, dilation_rate=(4,4), trainable=trainable)
+        self.conv_1_2 = layers.Conv2D(num_filters, kernel_size, padding=padding, dilation_rate=(2,2), trainable=trainable)
         self.relu_1_2 = layers.ReLU()
         self.bn_1_2 = layers.BatchNormalization()
         self.drop_1_2 = layers.Dropout(dropout)
 
-        self.conv_1_4 = layers.Conv2D(num_filters, kernel_size, padding=padding, dilation_rate=(8,8), trainable=trainable)
+        self.conv_1_4 = layers.Conv2D(num_filters, kernel_size, padding=padding, dilation_rate=(4,4), trainable=trainable)
         self.relu_1_4 = layers.ReLU()
         self.bn_1_4 = layers.BatchNormalization()
         self.drop_1_4 = layers.Dropout(dropout)
 
-        self.conv_1_8 = layers.Conv2D(num_filters, kernel_size, padding=padding, dilation_rate=(16,16), trainable=trainable)
+        self.conv_1_8 = layers.Conv2D(num_filters, kernel_size, padding=padding, dilation_rate=(8,8), trainable=trainable)
         self.relu_1_8 = layers.ReLU()
         self.bn_1_8 = layers.BatchNormalization()
         self.drop_1_8 = layers.Dropout(dropout)
