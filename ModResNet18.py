@@ -286,52 +286,48 @@ def normalize(image, label):
 
 if __name__ == '__main__':
 
-    batch_size = 10
-    model = ModResNet18Classify(batch_size, trainable=True)
+    batch_size = 1
+    # model = ModResNet18Classify(batch_size, trainable=True)
+    model = ModResNet18FcnFullRes(trainable=True)
     model.build((batch_size,224,224,3))
     model.summary()
     
-    [ds_train, ds_test, ds_val], ds_info = tfds.load('imagenette', split=['train[:5%]', 'train[5%:7%]', 'validation[:5%]'], shuffle_files=False, as_supervised=True, with_info=True)
-
-
-    num_train = ds_info.splits['train[:5%]'].num_examples
-    ds_train = ds_train.map(normalize_and_resize_img, num_parallel_calls=tf.data.AUTOTUNE)
-    ds_train = ds_train.cache()
-    ds_train = ds_train.shuffle(num_train)
-    ds_train = ds_train.batch(batch_size).map(lambda x, y: (x, tf.one_hot(y, depth=1000)))
-    ds_train = ds_train.prefetch(tf.data.AUTOTUNE)
-
-    num_valid = ds_info.splits['validation[:5%]'].num_examples
-    ds_val = ds_val.map(normalize_and_resize_img, num_parallel_calls=tf.data.AUTOTUNE)
-    ds_val = ds_val.batch(batch_size).map(lambda x, y: (x, tf.one_hot(y, depth=1000)))
-    ds_val = ds_val.cache()
-    ds_val = ds_val.prefetch(tf.data.AUTOTUNE)
-
-    
-    # model = ModResNet18FcnFullRes(trainable=True)
-    # model.build((1,224,224,3))
-    # model.summary()
-    
+    # [ds_train, ds_test, ds_val], ds_info = tfds.load('imagenette', split=['train[:5%]', 'train[5%:7%]', 'validation[:2%]'], shuffle_files=False, as_supervised=True, with_info=True)
     # [ds_train, ds_test, ds_val], ds_info = tfds.load('imagenette', split=['train[:75%]', 'train[75%:]', 'validation'], shuffle_files=False, as_supervised=True, with_info=True)
-    # #print(ds_train)
-    # # ds_train = ds_train.map(normalize_and_resize_img, num_parallel_calls=tf.data.AUTOTUNE)
-    # ds_train = ds_train.map(normalize, num_parallel_calls=tf.data.AUTOTUNE)
 
+    # num_train = ds_info.splits['train[:5%]'].num_examples
+    # num_val = ds_info.splits['validation[:2%]'].num_examples
+    # num_test = ds_info.splits['train[5:7%]'].num_examples
+
+    # ds_train = ds_train.map(normalize_and_resize_img, num_parallel_calls=tf.data.AUTOTUNE)
+    # ds_train = ds_train.cache()
+    # ds_train = ds_train.shuffle(num_train)
+    # ds_train = ds_train.batch(batch_size).map(lambda x, y: (x, tf.one_hot(y, depth=1000)))
+    # ds_train = ds_train.prefetch(tf.data.AUTOTUNE)
+
+    # ds_val = ds_val.map(normalize_and_resize_img, num_parallel_calls=tf.data.AUTOTUNE)
+    # ds_val = ds_val.batch(batch_size).map(lambda x, y: (x, tf.one_hot(y, depth=1000)))
+    # ds_val = ds_val.cache()
+    # ds_val = ds_val.prefetch(tf.data.AUTOTUNE)
+
+    # ds_test = ds_test.map(normalize_and_resize_img, num_parallel_calls=tf.data.AUTOTUNE)
+    # ds_test = ds_test.batch(batch_size).map(lambda x, y: (x, tf.one_hot(y, depth=1000)))
+    # ds_test = ds_test.cache()
+    # ds_test = ds_test.prefetch(tf.data.AUTOTUNE)
+    
+    
     # one = ds_train.batch(1).take(1)
     # for image, label in one:
     #     print(image.shape)
     #     out = model.predict(image)
     #     print(out.shape)
     #     print(out.argmax(axis=-1))
-
-
-    num_test = ds_info.splits['train[5:7%]'].num_examples
-    ds_test = ds_test.map(normalize_and_resize_img, num_parallel_calls=tf.data.AUTOTUNE)
-    ds_test = ds_test.batch(batch_size).map(lambda x, y: (x, tf.one_hot(y, depth=1000)))
-    ds_test = ds_test.cache()
-    ds_test = ds_test.prefetch(tf.data.AUTOTUNE)
-
     
+
+    voc_base_dir = './VOCtrainval_11-May-2012/VOCdevkit/VOC2012'
+    voc_img_dir = voc_base_dir + 'JPEGImages'
+    
+
     optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
     loss_fn = tf.keras.losses.CategoricalCrossentropy()
 
