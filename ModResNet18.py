@@ -10,11 +10,17 @@ os.add_dll_directory(r'C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.6/
 os.add_dll_directory(r'C:/Program Files/NVIDIA/CUDNN/v8.3/bin')
 os.add_dll_directory(r'C:/Program Files/zlib/dll_x64')
 
+import csv
+import time
+import datetime
 import tensorflow as tf
-from tensorflow.keras import layers
+from tensorflow.keras import layers, callbacks
+from tensorflow.keras.callbacks import ModelCheckpoint, CSVLogger
+
 import tensorflow_datasets as tfds
 import numpy as np
 import matplotlib.pyplot as plt
+import VOC2012 as vc
 
 
 
@@ -173,44 +179,64 @@ class ConvSpread(tf.keras.Model):
 
 
 
-class ModResNet18BaseDownsample(tf.keras.Model):
+class ModResNet18BaseDownUp(tf.keras.Model):
     def __init__(self, trainable=False):
         super().__init__()
-        self.conv_spread = ConvSpread(32, trainable=trainable)
-        self.block_1 = ModResNetBlock(32, trainable=trainable, cat=True)
-        self.block_2 = ModResNetBlock(64, trainable=trainable, cat=False)
-        self.block_3 = ModResNetBlock(64, trainable=trainable, cat=True)
-        self.block_4 = ModResNetBlock(128, trainable=trainable, cat=False)
-        self.block_5 = ModResNetBlock(128, trainable=trainable, cat=True)
-        self.block_6 = ModResNetBlock(256, trainable=trainable, cat=False)
-        self.block_7 = ModResNetBlock(256, trainable=trainable, cat=True)
-        self.block_8 = ModResNetBlock(512, trainable=trainable, cat=False)
+        # self.conv_spread = ConvSpread(32, trainable=trainable)
+        # self.block_1 = ModResNetBlock(32, trainable=trainable, cat=True)
+        # self.block_2 = ModResNetBlock(64, trainable=trainable, cat=False)
+        # self.block_3 = ModResNetBlock(64, trainable=trainable, cat=True)
+        # self.block_4 = ModResNetBlock(128, trainable=trainable, cat=False)
+        # self.block_5 = ModResNetBlock(128, trainable=trainable, cat=True)
+        # self.block_6 = ModResNetBlock(256, trainable=trainable, cat=False)
+        # self.block_7 = ModResNetBlock(256, trainable=trainable, cat=True)
+        # self.block_8 = ModResNetBlock(512, trainable=trainable, cat=False)
+
+        self.conv_spread = ConvSpread(64, trainable=trainable)
+        self.block_1 = ModResNetBlock(64, trainable=trainable, cat=True)
+        self.block_2 = ModResNetBlock(128, trainable=trainable, cat=True)
+        self.block_3 = ModResNetBlock(256, trainable=trainable, cat=True)
+        self.block_4 = ModResNetBlock(512, trainable=trainable, cat=True)
 
         self.pool_1 = layers.MaxPool2D(strides=2)
         self.pool_2 = layers.MaxPool2D(strides=2)
         self.pool_3 = layers.MaxPool2D(strides=2)
         self.pool_4 = layers.MaxPool2D(strides=2)
-        self.pool_5 = layers.MaxPool2D(strides=2)
+        #self.pool_5 = layers.MaxPool2D(strides=2)
+
+        self.block_5 = ModResNetBlock(256, trainable=trainable, cat=False)
+        self.block_6 = ModResNetBlock(128, trainable=trainable, cat=False)
+        self.block_7 = ModResNetBlock(64, trainable=trainable, cat=False)
+        self.block_8 = ModResNetBlock(64, trainable=trainable, cat=False)
+        self.up_1 = layers.Conv2DTranspose(256, kernel_size=3, stride=2, padding='same')
+        self.up_2 = layers.Conv2DTranspose(256, kernel_size=3, stride=2, padding='same')
+        self.up_3 = layers.Conv2DTranspose(256, kernel_size=3, stride=2, padding='same')
+        self.up_4 = layers.Conv2DTranspose(256, kernel_size=3, stride=2, padding='same')
+        
+
 
 
     def call(self, inputs, trainable=False):
         # Add and cat
-        x = self.conv_spread(inputs)
-        x = self.pool_1(x)
-        x = self.block_1(x)
-        x = self.block_2(x)
-        x = self.block_3(x)
-        x = self.pool_2(x)
+        a = self.conv_spread(inputs)
+        x = self.pool_1(a)
+        b = self.block_1(x)
+        x = self.pool_2(b)
+        c = self.block_2(x)
+        x = self.pool_3(c)
+        d = self.block_3(x)
+        x = self.pool_4(d)
         x = self.block_4(x)
-        x = self.block_5(x)
-        x = self.pool_3(x)
-        x = self.block_6(x)
-        x = self.pool_4(x)
-        x = self.block_7(x)
-        x = self.pool_5(x)
-        x = self.block_8(x)
+
 
         return x
+
+# class ModResNet18BaseUpsample(tf.keras.Model):
+#     def __init__(self, trainable=False):
+#         super().__init__()
+        
+#     def call(self, inputs, trainable=False):
+        
 
 
 class ModResNet18BaseFullRes(tf.keras.Model):
@@ -254,7 +280,7 @@ class ModResNet18Classify(ModResNet18BaseDownsample):
 
     
 class ModResNet18FcnFullRes(ModResNet18BaseFullRes):
-    def __init__(self, classes=10, trainable=False):
+    def __init__(self, classes=21, trainable=False):
         super().__init__(trainable=trainable)
         self.squeeze = layers.Conv2D(classes, 1, padding='valid', trainable=trainable)
         self.softmax = layers.Softmax()
@@ -274,7 +300,19 @@ class ModResNet18FcnEncodeDecode(ModResNet18BaseFullRes):
         
     def call(self, inputs, trainable=False):
         pass
-    
+
+#####################################################################
+# from https://stackoverflow.com/questions/43178668/record-the-computation-time-for-each-epoch-in-keras-during-model-fit
+class TimeHistory(callbacks.Callback):
+    def on_train_begin(self, logs={}):
+        self.times = []
+
+    def on_epoch_begin(self, epoch, logs={}):
+        self.epoch_time_start = time.time()
+
+    def on_epoch_end(self, epoch, logs={}):
+        self.times.append(time.time() - self.epoch_time_start)
+#####################################################################
 
 def normalize_and_resize_img(image, label):
     image = tf.cast(image, tf.float32) / 255.
@@ -283,14 +321,18 @@ def normalize_and_resize_img(image, label):
 def normalize(image, label):
     return tf.cast(image, tf.float32) / 255., label
 
+def one_hot(x, num_classes=21):
+    return tf.one_hot(x, num_classes)
+
 
 if __name__ == '__main__':
-
+    physical_devices = tf.config.list_physical_devices('GPU')
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
     batch_size = 1
     # model = ModResNet18Classify(batch_size, trainable=True)
     model = ModResNet18FcnFullRes(trainable=True)
-    model.build((batch_size,224,224,3))
-    model.summary()
+    # model.build((batch_size,224,224,3))
+    # model.summary()
     
     # [ds_train, ds_test, ds_val], ds_info = tfds.load('imagenette', split=['train[:5%]', 'train[5%:7%]', 'validation[:2%]'], shuffle_files=False, as_supervised=True, with_info=True)
     # [ds_train, ds_test, ds_val], ds_info = tfds.load('imagenette', split=['train[:75%]', 'train[75%:]', 'validation'], shuffle_files=False, as_supervised=True, with_info=True)
@@ -324,13 +366,77 @@ if __name__ == '__main__':
     #     print(out.argmax(axis=-1))
     
 
-    voc_base_dir = './VOCtrainval_11-May-2012/VOCdevkit/VOC2012'
-    voc_img_dir = voc_base_dir + 'JPEGImages'
+    voc_base_dir = './VOCtrainval_11-May-2012/VOCdevkit/VOC2012/'
+    voc = vc.VOC2012(voc_base_dir, resize_method='resize', checkpaths=True)
+
+    voc.load_train_data('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/voc2012_train')
+    voc.load_test_data('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/voc2012_test')
+    voc.load_val_data('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/voc2012_val')
+
+    voc.convert_to_numpy()
+
+    num_train = voc.train_images.shape[0]
+    print(num_train)
+    num_test = voc.test_images.shape[0]
+    print(num_test)
+    num_val = voc.val_images.shape[0]
+    print(num_val)
+
+    # voc.train_images = tf.ragged.constant(voc.train_images)
+    # voc.train_labels = tf.ragged.constant(voc.train_labels)
+    # voc.test_images = tf.ragged.constant(voc.test_images)
+    # voc.test_labels = tf.ragged.constant(voc.test_labels)
+    # voc.val_images = tf.ragged.constant(voc.val_images)
+    # voc.val_labels = tf.ragged.constant(voc.val_labels)
+
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+
+    # a, b = voc.get_batch_train(10)
+
+    #####################################################
+    # from https://stackoverflow.com/questions/61046870/how-to-save-weights-of-keras-model-for-each-epoch
+    checkpoint_path = "./training{}".format(timestamp)
+    checkpoint_path += "/cp-{epoch:04d}.ckpt"
+    checkpoint_dir = os.path.dirname(checkpoint_path)
+
+    cp_callback = tf.keras.callbacks.ModelCheckpoint(
+        checkpoint_path, verbose=1, save_weights_only=True,
+        save_freq='epoch')
+    #####################################################
+
+    #####################################################
+    # from https://stackoverflow.com/questions/38445982/how-to-log-keras-loss-output-to-a-file
+    csv_logger = CSVLogger('train_log_{}.csv'.format(timestamp), append=True, separator=';')
+    #####################################################
+
+    time_callback = TimeHistory()
     
-
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+    
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001)
     loss_fn = tf.keras.losses.CategoricalCrossentropy()
+    model.compile(loss=loss_fn,
+                  optimizer=optimizer,
+                  metrics=['accuracy',tf.keras.metrics.MeanIoU(num_classes=21)])
 
+    # model.save_weights(checkpoint_path.format(epoch=0))    
+
+    # model.fit(x=voc.train_images,
+    #           y=voc.train_labels,
+    #           batch_size=batch_size,
+    #           epochs=3,
+    #           verbose=1,
+    #           callbacks = [cp_callback,csv_logger,time_callback],
+    #           validation_data=(voc.val_images,voc.val_labels),
+    #           shuffle=True
+    #           )
+
+    # with open('./train_times_{}.csv', 'w') as csvfile:
+    #     writer = csv.writer(csvfile)
+
+    #     header = ['epoch', 'computation_time_ms']
+    #     for i, time in enumerate(time_callback.times):
+    #         writer.writerow([i, time])
+        
     @tf.function
     def train_step(x, y):
         with tf.GradientTape() as tape:
@@ -354,6 +460,7 @@ if __name__ == '__main__':
     
     num_epochs = 10
 
+    
     num_batches = int(num_train / batch_size)
 
     train_loss = []
@@ -363,8 +470,10 @@ if __name__ == '__main__':
     for epoch in range(num_epochs):
         epoch_loss = 0
         epoch_correct = 0
-        for x_i, y_i in ds_train:
-            batch_loss, batch_correct = train_step(x_i, y_i)
+        #for x_i, y_i in ds_train:
+        for _ in range(num_batches):
+            x_i, y_i = voc.get_batch_train(batch_size)
+            batch_loss, batch_correct = train_step(x_i, one_hot(y_i))
             epoch_correct += batch_correct.numpy()
             epoch_loss += batch_loss
 

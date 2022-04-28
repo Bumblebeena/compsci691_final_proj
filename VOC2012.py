@@ -4,6 +4,19 @@
 #
 # DESCRIPTION: utility functions to read in VOC 2012 segmentation data and save
 # as h5 in order to read data faster.
+#
+# Change log:
+# 4/25/2022
+# - Added option to not resize images when reading in
+# - Removed some aug functions because I don't plan on using them
+# - Added function to carve test set off of train set given a split percentage
+# - Added function to flip train images/labels along horizontal axis
+# - Added function to shuffle training images/labels along a shared reorder
+# - Added main function to preprocess train/val/test and save as h5
+#
+# 4/26/2022
+# - Changed h5py saving and loading to pickle because h5py was borking out with
+#   numpy arrays of different sizes
 ##########################################################################################
 
 
@@ -11,25 +24,33 @@
 import cv2
 import numpy as np
 from PIL import Image
-import h5py
+#import h5py
+import pickle
 import os
 import random
 import threading
+import math
 import queue
 
 def save_h5(path,images,labels):
     print('saving', path)
-    file = h5py.File(name=path,mode='w')
-    file['images'] = images
-    file['labels'] = labels
+    # file = h5py.File(name=path,mode='w')
+    # file['images'] = images
+    # file['labels'] = labels
+    pickle.dump(images, open('{}_images.p'.format(path), 'wb'))
+    pickle.dump(labels, open('{}_labels.p'.format(path), 'wb'))
+    
 def load_h5(path):
-	print('loading',path)
-	file = h5py.File(name=path,mode='r')
-	return file['images'],file['labels']
+    print('loading',path)
+    # file = h5py.File(name=path,mode='r')
+
+    images = pickle.load(open('{}_images.p'.format(path), 'rb'))
+    labels = pickle.load(open('{}_labels.p'.format(path), 'rb'))
+    return images, labels
 
 
 class VOC2012:
-    def __init__(self, root_path='./VOC2012/', aug_path='SegmentationClassAug/', image_size=(224, 224),
+    def __init__(self, root_path='./VOC2012/', aug_path='SegmentationClassAug/', image_size=(300, 300),
                  resize_method='resize', checkpaths=False):
         '''
         Create a VOC2012 object
@@ -44,7 +65,7 @@ class VOC2012:
         '''
         self.root_path = root_path
         self.resize_method = resize_method
-        if resize_method != 'resize' and resize_method != 'pad':
+        if resize_method != 'resize' and resize_method != 'pad' and resize_method != 'none':
             print('Unknown resize method:', resize_method)
             exit()
         if root_path[len(root_path) - 1] != '/' and root_path[len(root_path) - 1] != '\\':
@@ -115,6 +136,8 @@ class VOC2012:
             self.read_train_list()
         for filename in self.train_list:
             image = cv2.imread(self.image_path + filename + '.jpg')
+            image = np.array(image)
+            image = image.astype('float32')
             if self.resize_method == 'resize':
                 image = cv2.resize(image, self.image_size)
             elif self.resize_method == 'pad':
@@ -124,6 +147,7 @@ class VOC2012:
             self.train_images.append(image)
             if len(self.train_images) % 100 == 0:
                 print('Reading train images', len(self.train_images), '/', len(self.train_list))
+                
     def read_train_labels(self):
         '''
         Read training labels into self.train_labels
@@ -138,6 +162,7 @@ class VOC2012:
         for filename in self.train_list:
             image = Image.open(self.label_path + filename + '.png')
             image = np.array(image)
+            image = image.astype('float32')
             image[image > 20] = 0
             if self.resize_method == 'resize':
                 image = cv2.resize(image, self.image_size, interpolation=cv2.INTER_NEAREST)
@@ -149,6 +174,7 @@ class VOC2012:
             self.train_labels.append(image)
             if len(self.train_labels) % 100 == 0:
                 print('Reading train labels', len(self.train_labels), '/', len(self.train_list))
+                
     def read_val_images(self):
         '''
            Read validation images into self.val_images
@@ -160,6 +186,8 @@ class VOC2012:
             self.read_val_list()
         for filename in self.val_list:
             image = cv2.imread(self.image_path + filename + '.jpg')
+            image = np.array(image)
+            image = image.astype('float32')
             if self.resize_method == 'resize':
                 image = cv2.resize(image, self.image_size)
             elif self.resize_method == 'pad':
@@ -169,6 +197,7 @@ class VOC2012:
             self.val_images.append(image)
             if len(self.val_images) % 100 == 0:
                 print('Reading val images', len(self.val_images), '/', len(self.val_list))
+                
     def read_val_labels(self):
         '''
            Read validation labels into self.val_labels
@@ -183,6 +212,7 @@ class VOC2012:
         for filename in self.val_list:
             image = Image.open(self.label_path + filename + '.png')
             image = np.array(image)
+            image = image.astype('float32')
             image[image > 20] = 0
             if self.resize_method == 'resize':
                 image = cv2.resize(image, self.image_size, interpolation=cv2.INTER_NEAREST)
@@ -194,62 +224,40 @@ class VOC2012:
             self.val_labels.append(image)
             if len(self.val_labels) % 100 == 0:
                 print('Reading val labels', len(self.val_labels), '/', len(self.val_list))
-    def read_aug_images_labels_and_save(self, save_path='./voc2012_aug.h5'):
+
+    def test_split(self, split_percent=0.8):
+        self.test_images = []
+        self.test_labels = []
+        num_images = len(self.train_images)
+        test_range = math.floor(num_images * split_percent)
+        self.test_images.extend(self.train_images[test_range:])
+        self.test_labels.extend(self.train_labels[test_range:])
+        self.train_images = self.train_images[:test_range-1]
+        self.train_labels = self.train_labels[:test_range-1]
+        
+
+    def flip_and_append_train(self):
         '''
-        read augmentation images and labels, and save them in the form of '.h5'
-        Note:This function will cost a great amount of memory. Leave enough to call it.
+        Augment training images by flipping them along the vertical axis
+        Must be called after read_train_images
         '''
-        is_continue = input('Warning:Reading augmentation files may take up a lot of memory, continue?[y/n]')
+        for i in range(len(self.train_images)):
+            #img_flip = self.train_labels[i].transpose(Image.FLIP_LEFT_RIGHT)
 
-        if is_continue != 'y' and is_continue != 'Y':
-            return
+            img_flip = cv2.flip(self.train_images[i], 1)
+            label_flip = cv2.flip(self.train_labels[i], 1)
+            #label_flip = self.train_labels[i].transpose(Image.FLIP_LEFT_RIGHT)
 
-        if hasattr(self, 'aug_images') == False:
-            self.aug_images = []
-        if hasattr(self, 'aug_labels') == False:
-            self.aug_labels = []
-        # check
-        if self.aug_path is None or os.path.exists(self.aug_path) == False:
-            raise Exception('No augmentation dictionary.Set attribute \'aug_path\' first')
-        if self.image_path is None or os.path.exists(self.image_path) == False:
-            raise Exception('Cannot find VOC2012 images path.')
+            self.train_images.append(img_flip)
+            self.train_labels.append(label_flip)
 
-        if hasattr(self, 'val_list') == False:
-            self.read_val_list()
-        aug_labels_filenames = os.listdir(self.aug_path)
+    
+    def shuffle_train(self):
+        temp_list = list(zip(self.train_images, self.train_labels))
+        random.shuffle(temp_list)
+        self.train_images, self.train_labels = zip(*temp_list)
 
-        for i in range(len(aug_labels_filenames)):
-            aug_labels_filenames[i] = aug_labels_filenames[i][:-4]
-        aug_labels_filenames = list(set(aug_labels_filenames) - set(self.val_list))
-        for i in range(len(aug_labels_filenames)):
-            aug_labels_filenames[i] = aug_labels_filenames[i] + '.png'
-
-        for label_filename in aug_labels_filenames:
-            # read label
-            label = cv2.imread(self.aug_path + label_filename, cv2.IMREAD_GRAYSCALE)
-            label[label > 20] = 0
-            if self.resize_method == 'resize':
-                label = cv2.resize(label, self.image_size, interpolation=cv2.INTER_NEAREST)
-            elif self.resize_method == 'pad':
-                height = np.shape(label)[0]
-                width = np.shape(label)[1]
-                label = cv2.copyMakeBorder(label, 0, 500 - height, 0, 500 - width, cv2.BORDER_CONSTANT, value=0)
-            label[label > 20] = 0
-            self.aug_labels.append(label)
-            # read image
-            image_filename = label_filename.replace('.png','.jpg')
-            image = cv2.imread(self.image_path + image_filename)
-            if self.resize_method == 'resize':
-                image = cv2.resize(image, self.image_size)
-            elif self.resize_method == 'pad':
-                height = np.shape(image)[0]
-                width = np.shape(image)[1]
-                image = cv2.copyMakeBorder(image, 0, 500 - height, 0, 500 - width, cv2.BORDER_CONSTANT, value=0)
-            self.aug_images.append(image)
-            if len(self.aug_labels) % 100 == 0:
-                print('Reading augmentation image & label pairs', len(self.aug_labels), '/',
-                                                                    len(aug_labels_filenames))
-        save_h5(save_path, self.aug_images, self.aug_labels)
+ 
     def calc_pixel_mean(self, dataset='voc2012_aug'):
         if dataset == 'voc2012_aug':
             dataset = self.aug_images
@@ -265,23 +273,27 @@ class VOC2012:
         sum_g = sum_g / len(dataset)
         sum_b = sum_b / len(dataset)
         print(sum_r, sum_g, sum_b)
-    def load_aug_data(self, aug_data_path='./voc2012_aug.h5'):
-        self.aug_images, self.aug_labels = load_h5(aug_data_path)
-    def save_train_data(self, path='./voc2012_train.h5'):
+ 
+    def save_train_data(self, path='./voc2012_train'):
         '''
         save training images and labels into path in the form of .h5
         Args:
             path:The path you want to save train data into.It must be xxx.h5
         '''
         save_h5(path, self.train_images, self.train_labels)
-    def save_val_data(self, path='./voc2012_val.h5'):
+        
+    def save_val_data(self, path='./voc2012_val'):
         '''
         save validation images and labels into path in the form of .h5
         Args:
             path:The path you want to save train data into.It must be xxx.h5
         '''
         save_h5(path, self.val_images, self.val_labels)
-    def read_all_data_and_save(self, train_data_save_path='./voc2012_train.h5', val_data_save_path='./voc2012_val.h5'):
+
+    def save_test_data(self, path='./voc2012_test'):
+        save_h5(path, self.test_images, self.test_labels)
+        
+    def read_all_data_and_save(self, train_data_save_path='./voc2012_train', val_data_save_path='./voc2012_val'):
         '''
         Read training and validation data and save them into two .h5 files.
         Args:
@@ -294,7 +306,11 @@ class VOC2012:
         self.read_val_labels()
         self.save_train_data(train_data_save_path)
         self.save_val_data(val_data_save_path)
-    def load_all_data(self, train_data_load_path='./voc2012_train.h5', val_data_load_path='./voc2012_val.h5'):
+        
+    def load_all_data(self,
+                      train_data_load_path='./voc2012_train',
+                      test_data_load_path='./voc2012_test',
+                      val_data_load_path='./voc2012_val'):
         '''
         Load training and validation data from .h5 files
         Args:
@@ -302,15 +318,21 @@ class VOC2012:
             val_data_load_path:The validation data .h5 file path.
         '''
         self.load_train_data(train_data_load_path)
+        self.load_test_data(test_data_load_path)
         self.load_val_data(val_data_load_path)
-    def load_train_data(self, path='./voc2012_train.h5'):
+        
+    def load_train_data(self, path='/voc2012_train'):
         '''
         Load training data from .h5 files
         Args:
             train_data_load_path:The training data .h5 file path.
         '''
         self.train_images, self.train_labels = load_h5(path)
-    def load_val_data(self, path='./voc2012_val.h5'):
+
+    def load_test_data(self, path='./voc2012_test'):
+        self.test_images, self.test_labels = load_h5(path)
+        
+    def load_val_data(self, path='./voc2012_val'):
         '''
         Load validation data from .h5 files
         Args:
@@ -341,6 +363,7 @@ class VOC2012:
             batch_labels = np.concatenate([batch_labels, self.train_labels[0:self.train_location]], axis=0)
 
         return batch_images, batch_labels
+    
     def get_batch_val(self, batch_size):
         '''
         Get a batch data from validation data.
@@ -363,6 +386,7 @@ class VOC2012:
             batch_images = np.concatenate([batch_images, self.val_images[0:self.val_location]], axis=0)
             batch_labels = np.concatenate([batch_labels, self.val_labels[0:self.val_location]], axis=0)
         return batch_images, batch_labels
+    
     def get_batch_aug(self, batch_size):
         '''
         Get a batch data from augmentation data.
@@ -386,6 +410,7 @@ class VOC2012:
             batch_labels = np.concatenate([batch_labels, self.aug_labels[0:self.aug_location]], axis=0)
 
         return batch_images, batch_labels
+    
     def add_batch_aug_queue(self, batch_size, max_queue_size):
         if hasattr(self, 'aug_queue') == False:
             self.aug_queue = queue.Queue(maxsize=max_queue_size)
@@ -393,10 +418,12 @@ class VOC2012:
             image_batch, label_batch = self.get_batch_aug(batch_size)
             image_batch, label_batch = self.random_resize(image_batch, label_batch)
             self.aug_queue.put([image_batch, label_batch])
+            
     def start_batch_aug_queue(self, batch_size, max_queue_size=30):
         if hasattr(self, 'aug_queue') == False:
             queue_thread = threading.Thread(target=self.add_batch_aug_queue, args=(batch_size, max_queue_size))
             queue_thread.start()
+            
     def get_batch_aug_fast(self, batch_size, max_queue_size=30):
         '''
         A fast function for get augmentation batch.Use another thread to get batch and put into a queue.
@@ -450,6 +477,7 @@ class VOC2012:
                       11:[192, 128, 0], 12:[64, 0, 128], 13:[192, 0, 128], 14:[64, 128, 128], 15:[192, 128, 128],
                       16:[0, 64, 0], 17:[128, 64, 0], 18:[0, 192, 0], 19:[128, 192, 0], 20:[0, 64, 128]}
         return color_dict[index]
+    
     def gray_to_rgb(self, image):
         '''
         Convert the gray image(mask image) to a rgb image
@@ -463,7 +491,42 @@ class VOC2012:
             for w in range(width):
                 result[h][w] = self.index_to_rgb(image[h][w])
         return result
+    
     def get_one_class_label(self, label, class_id):
         new_label = label
         new_label[new_label != class_id] = 0
         return new_label
+
+    def convert_to_numpy(self):
+        half = int(len(self.val_images)/2)
+        self.train_images = np.array(self.train_images)
+        self.train_labels = np.array(self.train_labels)
+        self.test_images = np.array(self.test_images)
+        self.test_labels = np.array(self.test_labels)
+        self.val_images = np.array(self.val_images[:half])
+        self.val_labels = np.array(self.val_labels[:half])
+
+
+
+if __name__ == '__main__':
+    random.seed(1234)
+    voc = VOC2012('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/', resize_method='resize', checkpaths=True)
+    voc.read_train_list()
+    voc.read_train_images()
+    voc.read_train_labels()
+    voc.test_split()
+    #voc.flip_and_append_train()
+    voc.shuffle_train()
+
+    print(len(voc.train_images))
+    print(len(voc.test_images))
+
+
+    voc.save_train_data('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/voc2012_train')
+    voc.save_test_data('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/voc2012_test')
+
+    voc.read_val_list()
+    voc.read_val_images()
+    voc.read_val_labels()
+    print(len(voc.val_images))
+    voc.save_val_data('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/voc2012_val')
