@@ -170,7 +170,7 @@ class VOC2012:
                 height = np.shape(image)[0]
                 width = np.shape(image)[1]
                 image = cv2.copyMakeBorder(image, 0, self.image_size[0] - height, 0, self.image_size[1] - width, cv2.BORDER_CONSTANT, value=0)
-            image[image > 20] = 0
+            image[image > 10] = 0
             self.train_labels.append(image)
             if len(self.train_labels) % 100 == 0:
                 print('Reading train labels', len(self.train_labels), '/', len(self.train_list))
@@ -213,14 +213,14 @@ class VOC2012:
             image = Image.open(self.label_path + filename + '.png')
             image = np.array(image)
             image = image.astype('float32')
-            image[image > 20] = 0
+            image[image > 10] = 0
             if self.resize_method == 'resize':
                 image = cv2.resize(image, self.image_size, interpolation=cv2.INTER_NEAREST)
             elif self.resize_method == 'pad':
                 height = np.shape(image)[0]
                 width = np.shape(image)[1]
                 image = cv2.copyMakeBorder(image, 0, 500 - height, 0, 500 - width, cv2.BORDER_CONSTANT, value=0)
-            image[image > 20] = 0
+            image[image > 10] = 0
             self.val_labels.append(image)
             if len(self.val_labels) % 100 == 0:
                 print('Reading val labels', len(self.val_labels), '/', len(self.val_list))
@@ -510,7 +510,8 @@ class VOC2012:
 
 if __name__ == '__main__':
     random.seed(1234)
-    voc = VOC2012('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/', resize_method='resize', image_size=(256,256), checkpaths=True)
+    # voc = VOC2012('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/', resize_method='resize', image_size=(256,256), checkpaths=True)
+    voc = VOC2012('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/', resize_method='resize', image_size=(224,224), checkpaths=True)
     voc.read_train_list()
     voc.read_train_images()
     voc.read_train_labels()
@@ -522,7 +523,7 @@ if __name__ == '__main__':
 
 
 
-    voc.save_train_data('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/voc2012_train')
+    voc.save_train_data('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/voc2012_224_train')
 
 
     voc.read_val_list()
@@ -531,5 +532,5 @@ if __name__ == '__main__':
     voc.test_split()
     print(len(voc.val_images))
     print(len(voc.test_images))
-    voc.save_test_data('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/voc2012_test')
-    voc.save_val_data('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/voc2012_val')
+    voc.save_test_data('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/voc2012_224_test')
+    voc.save_val_data('./VOCtrainval_11-May-2012/VOCdevkit/VOC2012/voc2012_224_val')

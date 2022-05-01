@@ -189,7 +189,7 @@ Just the encoding side of a full PARCnet, with no output activation function.
 Meant to be plugged into either the upsampling or classification parent class.
 '''
 class ModResNet18BaseDownSample(tf.keras.Model):
-    def __init__(self, classes, trainable=False):
+    def __init__(self, trainable=False):
         super().__init__()
         self.conv_spread = ConvSpread(32, trainable=trainable)
         self.block_1 = ModResNetBlock(32, trainable=trainable, cat=True)
@@ -222,7 +222,7 @@ The decoding side of a full PARCnet. Contains the output layer.
 '''
 class ModResNet18BaseUpsample(ModResNet18BaseDownSample):
     def __init__(self, classes, trainable=False):
-        super().__init__(classes, trainable)
+        super().__init__(trainable)
         self.block_5 = ConvSpread(128, trainable=trainable)
         self.block_6 = ConvSpread(64, trainable=trainable)
         self.block_7 = ConvSpread(32, trainable=trainable)
@@ -240,6 +240,7 @@ class ModResNet18BaseUpsample(ModResNet18BaseDownSample):
 
         self.squeeze = layers.Conv2D(classes, 1, padding='valid', trainable=trainable)
         self.softmax = layers.Softmax()
+
         
     def call(self, inputs, trainable=False):
         a = self.conv_spread(inputs)
@@ -350,7 +351,7 @@ def normalize_and_resize_img(image, label):
 def normalize(image, label):
     return tf.cast(image, tf.float32) / 255., label
 
-def one_hot(x, num_classes=21):
+def one_hot(x, num_classes=11):
     return tf.one_hot(x, num_classes)
 
 
@@ -358,7 +359,7 @@ if __name__ == '__main__':
     physical_devices = tf.config.list_physical_devices('GPU')
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
     batch_size = 10
-    model = ModResNet18BaseUpsample(21, trainable=True)
+    model = ModResNet18BaseUpsample(11, trainable=True)
     # model = ModResNet18FcnFullRes(trainable=True)
     # model.build((batch_size,224,224,3))
     # model.summary()
@@ -418,7 +419,7 @@ if __name__ == '__main__':
     # # voc.val_images = tf.ragged.constant(voc.val_images)
     # # voc.val_labels = tf.ragged.constant(voc.val_labels)
 
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M)"
 
     # a, b = voc.get_batch_train(1)
 
@@ -446,16 +447,17 @@ if __name__ == '__main__':
     time_callback = TimeHistory()
     
     
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.0005)
     loss_fn = tf.keras.losses.CategoricalCrossentropy()
+
     model.compile(loss=loss_fn,
                   optimizer=optimizer,
-                  metrics=['accuracy',tf.keras.metrics.OneHotMeanIoU(num_classes=21)])
+                  metrics=['accuracy',tf.keras.metrics.OneHotMeanIoU(num_classes=11)])
 
     model.save_weights(checkpoint_path.format(epoch=0))    
 
-    model.fit(x=voc.train_images[:500],
-              y=one_hot(voc.train_labels[:500]),
+    model.fit(x=voc.train_images[:600],
+              y=one_hot(voc.train_labels[:600]),
               batch_size=batch_size,
               epochs=100,
               verbose=1,
