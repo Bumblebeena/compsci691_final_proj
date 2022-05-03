@@ -14,19 +14,20 @@ import csv
 import time
 import datetime
 import tensorflow as tf
-from tensorflow.keras import layers, callbacks
+from tensorflow.keras import layers
 from tensorflow.keras.callbacks import ModelCheckpoint, CSVLogger
 
 import tensorflow_datasets as tfds
 import numpy as np
 import matplotlib.pyplot as plt
 import VOC2012 as vc
+from Utils import one_hot, TimeHistory
 
 
 '''
 Basic PARCnet block. Has two consecutive layers of 
 '''
-class ModResNetBlock(tf.keras.Model):
+class PARCnetBlock(tf.keras.Model):
     def __init__(self,
                  num_filters,
                  kernel_size=3,
@@ -188,14 +189,14 @@ class ConvSpread(tf.keras.Model):
 Just the encoding side of a full PARCnet, with no output activation function.
 Meant to be plugged into either the upsampling or classification parent class.
 '''
-class ModResNet18BaseDownSample(tf.keras.Model):
+class PARCnetEncode(tf.keras.Model):
     def __init__(self, trainable=False):
         super().__init__()
         self.conv_spread = ConvSpread(32, trainable=trainable)
-        self.block_1 = ModResNetBlock(32, trainable=trainable, cat=True)
-        self.block_2 = ModResNetBlock(64, trainable=trainable, cat=True)
-        self.block_3 = ModResNetBlock(128, trainable=trainable, cat=True)
-        self.block_4 = ModResNetBlock(256, trainable=trainable, cat=True)
+        self.block_1 = PARCnetBlock(32, trainable=trainable, cat=True)
+        self.block_2 = PARCnetBlock(64, trainable=trainable, cat=True)
+        self.block_3 = PARCnetBlock(128, trainable=trainable, cat=True)
+        self.block_4 = PARCnetBlock(256, trainable=trainable, cat=True)
 
         self.pool_1 = layers.MaxPool2D(strides=2)
         self.pool_2 = layers.MaxPool2D(strides=2)
@@ -220,7 +221,7 @@ class ModResNet18BaseDownSample(tf.keras.Model):
 '''
 The decoding side of a full PARCnet. Contains the output layer.
 '''
-class ModResNet18BaseUpsample(ModResNet18BaseDownSample):
+class PARCnetSeg(PARCnetEncode):
     def __init__(self, classes, trainable=False):
         super().__init__(trainable)
         self.block_5 = ConvSpread(128, trainable=trainable)
@@ -273,10 +274,12 @@ class ModResNet18BaseUpsample(ModResNet18BaseDownSample):
         return x
 
 
-# Use this to pre train the net on imagenet data if initial direct training is bad
-class ModResNet18Classify(ModResNet18BaseDownSample):
+# Use this to pre train the net on imagenet data if initial direct training is bad.
+# num_feature_maps should be set to however many feature maps are output by the
+# last layer of PARCnetEncode
+class PARCnetClassify(PARCnetEncode):
     def __init__(self, num_classes, batch_size=256, num_feature_maps=512, trainable=False):
-        super().__init__(num_classes, trainable)
+        super().__init__(trainable)
         self.pool_g  = layers.GlobalAveragePooling2D()
         self.dense_1 = layers.Dense(1000, input_shape=(batch_size,num_feature_maps), activation='softmax')
 
@@ -288,18 +291,18 @@ class ModResNet18Classify(ModResNet18BaseDownSample):
 
 
 # This class takes too much memory to run on my computer
-class ModResNet18BaseFullRes(tf.keras.Model):
+class PARCnetFullResBase(tf.keras.Model):
     def __init__(self, trainable=False):
         super().__init__()
         self.conv_spread = ConvSpread(64, trainable=trainable)
-        self.block_1 = ModResNetBlock(64, dropout=0.2, trainable=trainable, cat=False)
-        self.block_2 = ModResNetBlock(64, dropout=0.2, trainable=trainable, cat=True)
-        self.block_3 = ModResNetBlock(128, dropout=0.2, trainable=trainable, cat=False)
-        self.block_4 = ModResNetBlock(128, dropout=0.2, trainable=trainable, cat=True)
-        self.block_5 = ModResNetBlock(256, dropout=0.2, trainable=trainable, cat=False)
-        self.block_6 = ModResNetBlock(256, dropout=0.2, trainable=trainable, cat=True)
-        self.block_7 = ModResNetBlock(512, dropout=0.2, trainable=trainable, cat=False)
-        self.block_8 = ModResNetBlock(512, dropout=0.2, trainable=trainable, cat=True)
+        self.block_1 = PARCnetBlock(64, dropout=0.2, trainable=trainable, cat=False)
+        self.block_2 = PARCnetBlock(64, dropout=0.2, trainable=trainable, cat=True)
+        self.block_3 = PARCnetBlock(128, dropout=0.2, trainable=trainable, cat=False)
+        self.block_4 = PARCnetBlock(128, dropout=0.2, trainable=trainable, cat=True)
+        self.block_5 = PARCnetBlock(256, dropout=0.2, trainable=trainable, cat=False)
+        self.block_6 = PARCnetBlock(256, dropout=0.2, trainable=trainable, cat=True)
+        self.block_7 = PARCnetBlock(512, dropout=0.2, trainable=trainable, cat=False)
+        self.block_8 = PARCnetBlock(512, dropout=0.2, trainable=trainable, cat=True)
 
     def call(self, inputs, trainable=False):
         # No pooling method
@@ -316,7 +319,7 @@ class ModResNet18BaseFullRes(tf.keras.Model):
         return x
 
     
-class ModResNet18FcnFullRes(ModResNet18BaseFullRes):
+class PARCnetFullRes(PARCnetFullResBase):
     def __init__(self, classes=21, trainable=False):
         super().__init__(trainable=trainable)
         self.squeeze = layers.Conv2D(classes, 1, padding='valid', trainable=trainable)
@@ -329,71 +332,21 @@ class ModResNet18FcnFullRes(ModResNet18BaseFullRes):
         x = self.softmax(x)
         return x
 
-
     
-#####################################################################
-# from https://stackoverflow.com/questions/43178668/record-the-computation-time-for-each-epoch-in-keras-during-model-fit
-class TimeHistory(callbacks.Callback):
-    def on_train_begin(self, logs={}):
-        self.times = []
-
-    def on_epoch_begin(self, epoch, logs={}):
-        self.epoch_time_start = time.time()
-
-    def on_epoch_end(self, epoch, logs={}):
-        self.times.append(time.time() - self.epoch_time_start)
-#####################################################################
-
-def normalize_and_resize_img(image, label):
-    image = tf.cast(image, tf.float32) / 255.
-    return tf.image.resize(image, [224,224]), label
-
-def normalize(image, label):
-    return tf.cast(image, tf.float32) / 255., label
-
-def one_hot(x, num_classes=11):
-    return tf.one_hot(x, num_classes)
 
 
 if __name__ == '__main__':
     physical_devices = tf.config.list_physical_devices('GPU')
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
     batch_size = 10
-    model = ModResNet18BaseUpsample(11, trainable=True)
-    # model = ModResNet18FcnFullRes(trainable=True)
+    model = PARCnetEncoderDecoder(11, trainable=True)
+    # model = PARCnetFullRes(trainable=True)
     # model.build((batch_size,224,224,3))
     # model.summary()
     
     # [ds_train, ds_test, ds_val], ds_info = tfds.load('imagenette', split=['train[:5%]', 'train[5%:7%]', 'validation[:2%]'], shuffle_files=False, as_supervised=True, with_info=True)
     # [ds_train, ds_test, ds_val], ds_info = tfds.load('imagenette', split=['train[:75%]', 'train[75%:]', 'validation'], shuffle_files=False, as_supervised=True, with_info=True)
 
-    # num_train = ds_info.splits['train[:5%]'].num_examples
-    # num_val = ds_info.splits['validation[:2%]'].num_examples
-    # num_test = ds_info.splits['train[5:7%]'].num_examples
-
-    # ds_train = ds_train.map(normalize_and_resize_img, num_parallel_calls=tf.data.AUTOTUNE)
-    # ds_train = ds_train.cache()
-    # ds_train = ds_train.shuffle(num_train)
-    # ds_train = ds_train.batch(batch_size).map(lambda x, y: (x, tf.one_hot(y, depth=1000)))
-    # ds_train = ds_train.prefetch(tf.data.AUTOTUNE)
-
-    # ds_val = ds_val.map(normalize_and_resize_img, num_parallel_calls=tf.data.AUTOTUNE)
-    # ds_val = ds_val.batch(batch_size).map(lambda x, y: (x, tf.one_hot(y, depth=1000)))
-    # ds_val = ds_val.cache()
-    # ds_val = ds_val.prefetch(tf.data.AUTOTUNE)
-
-    # ds_test = ds_test.map(normalize_and_resize_img, num_parallel_calls=tf.data.AUTOTUNE)
-    # ds_test = ds_test.batch(batch_size).map(lambda x, y: (x, tf.one_hot(y, depth=1000)))
-    # ds_test = ds_test.cache()
-    # ds_test = ds_test.prefetch(tf.data.AUTOTUNE)
-    
-    
-    # one = ds_train.batch(1).take(1)
-    # for image, label in one:
-    #     print(image[0].shape)
-    #     out = model.predict(image[0])
-    #     print(out.shape)
-    #     print(out.argmax(axis=-1))
     
 
     voc_base_dir = './VOCtrainval_11-May-2012/VOCdevkit/VOC2012/'
@@ -419,7 +372,7 @@ if __name__ == '__main__':
     # # voc.val_images = tf.ragged.constant(voc.val_images)
     # # voc.val_labels = tf.ragged.constant(voc.val_labels)
 
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M)"
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
 
     # a, b = voc.get_batch_train(1)
 
@@ -434,7 +387,7 @@ if __name__ == '__main__':
     checkpoint_path += "/cp-{epoch:04d}.ckpt"
     checkpoint_dir = os.path.dirname(checkpoint_path)
 
-    cp_callback = tf.keras.callbacks.ModelCheckpoint(
+    cp_callback = ModelCheckpoint(
         checkpoint_path, verbose=1, save_weights_only=True,
         save_freq='epoch')
     # #####################################################

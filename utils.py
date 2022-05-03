@@ -1,105 +1,27 @@
-###########################################
-# Daniel Johnston
-# LC19414
-# CMSC 691
-# Final Project
-###########################################
-
-import os
-import cv2
+import tensorflow as tf
+from tensorflow.keras.callbacks import Callback
 
 
-# After attempting to load all of the images from the cityscapes
-# dataset directly into memory for training, I realized that I
-# don't have enough memory to do that.
-# 
-def create_path_files() :
-    image_dir = "cityscapes_images/leftImg8bit"
-    label_dir = "cityscapes_labels/gtFine"
 
-    image_train_paths = []
-    image_val_paths = []
-    image_test_paths = []
-    for subdir, dirs, files in os.walk(image_dir):
-        for f in files:
-            if (f[-3:] != 'png'):
-                continue
+#####################################################################
+# from https://stackoverflow.com/questions/43178668/record-the-computation-time-for-each-epoch-in-keras-during-model-fit
+class TimeHistory(Callback):
+    def on_train_begin(self, logs={}):
+        self.times = []
 
-            filepath = subdir + os.sep + f
-            if 'train' in subdir:
-                image_train_paths.append(filepath)
-            elif 'val' in subdir:
-                image_val_paths.append(filepath)
-            else:
-                image_test_paths.append(filepath)
+    def on_epoch_begin(self, epoch, logs={}):
+        self.epoch_time_start = time.time()
 
-    label_train_inst_paths = []
-    label_train_full_paths = []
-    label_val_inst_paths = []
-    label_val_full_paths = []
-    label_test_inst_paths = []
-    label_test_full_paths = []
-    for subdir, dirs, files in os.walk(label_dir):
-        for f in files:
-            if (f[-3:] != 'png'):
-                continue
+    def on_epoch_end(self, epoch, logs={}):
+        self.times.append(time.time() - self.epoch_time_start)
+#####################################################################
 
-            filepath = subdir + os.sep + f
-            if 'train' in subdir:
-                if 'inst' in f:
-                    label_train_inst_paths.append(filepath)
-                elif 'label' in f:
-                    label_train_full_paths.append(filepath)
-            elif 'val' in subdir:
-                if 'inst' in f:
-                    label_val_inst_paths.append(filepath)
-                elif 'label' in f:
-                    label_val_full_paths.append(filepath)
-            else:
-                if 'inst' in f:
-                    label_test_inst_paths.append(filepath)
-                elif 'label' in f:
-                    label_test_full_paths.append(filepath)
+def normalize_and_resize_img(image, label):
+    image = tf.cast(image, tf.float32) / 255.
+    return tf.image.resize(image, [224,224]), label
 
-    image_train_paths.sort()
-    image_val_paths.sort()
-    image_test_paths.sort()
-    with open('cityscapes_conf/image_train_paths.txt', 'w+') as f:
-        for item in image_train_paths:
-            f.write('{}\n'.format(item))
-    with open('cityscapes_conf/image_val_paths.txt', 'w+') as f:
-        for item in image_val_paths:
-            f.write('{}\n'.format(item))
-    with open('cityscapes_conf/image_test_paths.txt', 'w+') as f:
-        for item in image_test_paths:
-            f.write('{}\n'.format(item))
+def normalize(image, label):
+    return tf.cast(image, tf.float32) / 255., label
 
-    label_train_inst_paths.sort()
-    label_val_inst_paths.sort()
-    label_test_inst_paths.sort()
-    with open('cityscapes_conf/label_train_inst_paths.txt', 'w+') as f:
-        for item in label_train_inst_paths:
-            f.write('{}\n'.format(item))
-    with open('cityscapes_conf/label_val_inst_paths.txt', 'w+') as f:
-        for item in label_val_inst_paths:
-            f.write('{}\n'.format(item))
-    with open('cityscapes_conf/label_test_inst_paths.txt', 'w+') as f:
-        for item in label_test_inst_paths:
-            f.write('{}\n'.format(item))
-
-    label_train_full_paths.sort()
-    label_val_full_paths.sort()
-    label_test_full_paths.sort()
-    with open('cityscapes_conf/label_train_full_paths.txt', 'w+') as f:
-        for item in label_train_full_paths:
-            f.write('{}\n'.format(item))
-    with open('cityscapes_conf/label_val_full_paths.txt', 'w+') as f:
-        for item in label_val_full_paths:
-            f.write('{}\n'.format(item))
-    with open('cityscapes_conf/label_test_full_paths.txt', 'w+') as f:
-        for item in label_test_full_paths:
-            f.write('{}\n'.format(item))
-
-
-if __name__ == '__main__':
-    #create_path_files()
+def one_hot(x, num_classes=11):
+    return tf.one_hot(x, num_classes)
